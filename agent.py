@@ -206,7 +206,7 @@ def send_email(subject, text):
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, user, to
     msg.set_content(text)
-    with smtplib.SMTP(host, int(os.getenv("SMTP_PORT") or 587), timeout=30) as s:
+    with smtplib.SMTP(host, int(os.getenv("SMTP_PORT", "587")), timeout=30) as s:
         s.starttls()
         s.login(user, pwd)
         s.send_message(msg)
