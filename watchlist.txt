@@ -1,0 +1,7 @@
+# One Yahoo Finance ticker per line. Lines starting with # are ignored.
+# US stocks: plain ticker.  SGX stocks: add .SI (e.g. D05.SI = DBS).
+AAPL
+MSFT
+KO
+D05.SI
+O39.SI
