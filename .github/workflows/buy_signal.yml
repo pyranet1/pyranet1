@@ -15,6 +15,11 @@ on:
           - scan
           - dry-run
           - test-alert
+          - explain
+      symbol:
+        description: "Ticker for 'explain' mode (e.g. AAPL or D05.SI)"
+        type: string
+        required: false
 
 permissions:
   contents: write              # needed to save state.json (alert cooldown) back to the repo
@@ -43,6 +48,7 @@ jobs:
       - name: Run agent
         env:
           MODE: ${{ inputs.mode }}
+          SYMBOL: ${{ inputs.symbol }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
@@ -54,6 +60,7 @@ jobs:
           case "$MODE" in
             dry-run)    python agent.py --dry-run ;;
             test-alert) python agent.py --test-alert ;;
+            explain)    python agent.py --explain "$SYMBOL" ;;
             *)          python agent.py ;;
           esac
 
