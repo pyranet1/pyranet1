@@ -206,7 +206,7 @@ def send_email(subject, text):
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, user, to
     msg.set_content(text)
-    with smtplib.SMTP(host, int(os.getenv("SMTP_PORT", "587")), timeout=30) as s:
+    with smtplib.SMTP(host, int(os.getenv("SMTP_PORT") or 587), timeout=30) as s:
         s.starttls()
         s.login(user, pwd)
         s.send_message(msg)
@@ -250,6 +250,62 @@ def in_cooldown(state, symbol, days):
     return datetime.now() - datetime.fromisoformat(last) < timedelta(days=days)
 
 
+# ───────────── EXPLAIN / REPLAY (for checking the logic) ─────────────
+def explain(symbol, d, cfg, bars=10):
+    """Print every input and step behind the signal for one symbol, plus a replay
+    of the last ~2 years showing when it WOULD have fired."""
+    close = d["close"].dropna()
+    iv, vals, g = compute_intrinsic(d, cfg)
+    eps, fcf, shares = d.get("eps"), d.get("fcf"), d.get("shares")
+    fcfps = fcf / shares if fcf and shares and shares > 0 else None
+    f = lambda v: "n/a" if v is None else f"{v:,.2f}"
+
+    print(f"\n=== {symbol} ===")
+    print("INPUTS (from Yahoo Finance)")
+    print(f"  EPS (TTM): {f(eps)} | Book value/share: {f(d.get('bvps'))}")
+    print(f"  Free cash flow: {f(fcf)} | Shares: {f(shares)} | FCF/share: {f(fcfps)}")
+    gsrc = "auto, last FY EPS growth" if d.get("growth") is not None else "manual fallback"
+    print(f"  Growth used: {g:.1f}% ({gsrc})")
+    print("VALUATION")
+    for k in ("graham_formula", "graham_number", "dcf"):
+        print(f"  {k:<15}: {f(vals.get(k))}")
+    print(f"  Chosen method '{cfg['method']}' -> intrinsic value: {f(iv)}")
+    if iv is None or iv <= 0:
+        print("  No valid intrinsic value, so no signal is possible for this stock.")
+        return
+
+    mos = (iv - close) / iv * 100
+    pe = close / eps if eps and eps > 0 else pd.Series(float("nan"), index=close.index)
+    pe_ok = pd.Series(True, index=close.index) if cfg["max_pe"] is None else (pe <= cfg["max_pe"])
+    zone = (mos >= cfg["min_mos"]) & pe_ok
+    r, e = rsi(close, cfg["rsi_len"]), ema(close, cfg["ema_len"])
+    rsi_cross = (r.shift(1) <= cfg["rsi_level"]) & (r > cfg["rsi_level"])
+    ema_cross = (close.shift(1) <= e.shift(1)) & (close > e)
+    entered = zone & ~zone.shift(1, fill_value=False)
+    confirm = {"rsi": rsi_cross, "ema": ema_cross}.get(cfg["confirm"], entered)
+    signal = zone & confirm
+
+    print(f"LAST {bars} DAILY BARS  (zone = margin of safety >= {cfg['min_mos']}%; confirm mode = {cfg['confirm']})")
+    print(f"  {'Date':<11}{'Close':>9}{'MoS %':>8}{'RSI':>6}  Zone  Confirm  Signal")
+    for dt in close.index[-bars:]:
+        print(f"  {str(dt.date()):<11}{close[dt]:>9.2f}{mos[dt]:>8.1f}{r[dt]:>6.0f}"
+              f"  {'yes' if zone[dt] else '-':<5} {'yes' if confirm[dt] else '-':<8} {'BUY' if signal[dt] else '-'}")
+
+    fired, last = [], None
+    for dt in signal[signal].index:
+        if last is None or (dt - last).days >= cfg["cooldown_days"]:
+            fired.append(dt)
+            last = dt
+    print("REPLAY (uses TODAY's intrinsic value on past prices, so it is an approximation)")
+    print(f"  Days in buy zone: {int(zone.sum())} of {len(zone)} | Signals after cooldown: {len(fired)}")
+    for dt in fired[-10:]:
+        print(f"    {dt.date()}  close {close[dt]:.2f}  MoS {mos[dt]:.1f}%  RSI {r[dt]:.0f}")
+
+    check = evaluate(symbol, d, cfg)
+    ok = check.get("status") == "ok" and bool(check["signal"]) == bool(signal.iloc[-1])
+    print(f"CROSS-CHECK: explain mode and the daily scan agree on the latest bar: {'yes' if ok else 'NO - report this'}")
+
+
 # ───────────── MAIN ─────────────
 def read_watchlist():
     lines = WATCHLIST_FILE.read_text().splitlines()
@@ -260,7 +316,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="print only, send nothing")
     ap.add_argument("--test-alert", action="store_true", help="send a test message")
+    ap.add_argument("--explain", metavar="SYMBOL", help="show the full working for one symbol")
     args = ap.parse_args()
+
+    if args.explain:
+        explain(args.explain, fetch(args.explain), CFG)
+        return
 
     if args.test_alert:
         sent = notify("Buy-signal agent test", "Test alert: your buy-signal agent is set up correctly.")
