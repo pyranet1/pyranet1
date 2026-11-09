@@ -1,0 +1,70 @@
+name: Buy Signal Agent
+
+on:
+  schedule:
+    # GitHub cron is always UTC. Runs may be delayed by several minutes.
+    - cron: "0 10 * * 1-5"    # 18:00 SGT - after the SGX close
+    - cron: "30 21 * * 1-5"   # 05:30 SGT next day - after the US close (covers EDT and EST)
+  workflow_dispatch:           # lets you run it manually from the Actions tab
+    inputs:
+      mode:
+        description: "What to run"
+        type: choice
+        default: scan
+        options:
+          - scan
+          - dry-run
+          - test-alert
+
+permissions:
+  contents: write              # needed to save state.json (alert cooldown) back to the repo
+
+concurrency:
+  group: buy-signal
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run agent
+        env:
+          MODE: ${{ inputs.mode }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: |
+          case "$MODE" in
+            dry-run)    python agent.py --dry-run ;;
+            test-alert) python agent.py --test-alert ;;
+            *)          python agent.py ;;
+          esac
+
+      - name: Save alert state
+        run: |
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "Update alert state"
+            git push
+          else
+            echo "No state change."
+          fi
