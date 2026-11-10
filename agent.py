@@ -149,6 +149,9 @@ def evaluate(symbol, d, cfg):
     return {
         "symbol": symbol, "status": "ok", "price": price, "intrinsic": iv,
         "methods": vals, "growth": g, "pe": pe, "mos": mos, "rsi": float(r.iloc[-1]),
+        "eps": eps, "bvps": d.get("bvps"),
+        "fcfps": (d["fcf"] / d["shares"]) if d.get("fcf") and d.get("shares") and d["shares"] > 0 else None,
+        "method": cfg["method"],
         "in_zone": bool(in_zone), "signal": bool(in_zone and confirm),
         "date": close.index[-1],
     }
@@ -226,13 +229,15 @@ def notify(subject, text):
 
 
 def format_signal(r):
-    m = ", ".join(f"{k}={v:.2f}" for k, v in r["methods"].items())
+    n = lambda v: "n/a" if v is None else f"{v:.2f}"
+    m = r["methods"]
     pe = f"{r['pe']:.1f}" if r["pe"] else "n/a"
     return (f"BUY SIGNAL: {r['symbol']}\n"
-            f"Price {r['price']:.2f} | Intrinsic {r['intrinsic']:.2f} | "
-            f"Margin of safety {r['mos']:.1f}%\n"
-            f"PE {pe} | RSI {r['rsi']:.0f} | Growth used {r['growth']:.1f}%\n"
-            f"Methods: {m}")
+            f"Price {r['price']:.2f} | PE {pe} | RSI {r['rsi']:.0f}\n"
+            f"EPS (TTM) {n(r['eps'])} | Book value/share {n(r['bvps'])} | FCF/share {n(r['fcfps'])}\n"
+            f"Growth used {r['growth']:.1f}%\n"
+            f"Graham Formula {n(m.get('graham_formula'))} | Graham Number {n(m.get('graham_number'))} | DCF {n(m.get('dcf'))}\n"
+            f"Intrinsic ({r['method']}) {r['intrinsic']:.2f} | Margin of safety {r['mos']:.1f}%")
 
 
 # ───────────── STATE (cooldown) ─────────────
