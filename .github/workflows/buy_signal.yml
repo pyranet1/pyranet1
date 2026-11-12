@@ -5,7 +5,7 @@ on:
     # GitHub cron is always UTC. Runs may be delayed by several minutes.
     - cron: "0 10 * * 1-5"    # 18:00 SGT - after the SGX close
     - cron: "30 21 * * 1-5"   # 05:30 SGT next day - after the US close (covers EDT and EST)
-    - cron: "46 14 * * 1-5"   # 22:30 SGT before the US open
+    - cron: "30 14 * * 1-5"   # 22:30 SGT before the US open
   workflow_dispatch:           # lets you run it manually from the Actions tab
     inputs:
       mode:
