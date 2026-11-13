@@ -355,7 +355,7 @@ def main():
         return
 
     body = "\n\n".join(format_signal(r) for r in new_signals)
-    body += "\n\nScreening aid only, not financial advice. Verify the fundamentals before trading."
+    #body += "\n\nScreening aid only, not financial advice. Verify the fundamentals before trading."
     print("\n" + body)
     if args.dry_run:
         print("\n(dry run: nothing sent, state not updated)")
