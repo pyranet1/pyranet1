@@ -129,6 +129,8 @@ def evaluate(symbol, d, cfg):
     eps = d.get("eps")
     pe = price / eps if eps and eps > 0 else None
     prev_pe = prev_price / eps if eps and eps > 0 else None
+    fwd_eps = d.get("fwd_eps")
+    fwd_pe = price / fwd_eps if fwd_eps and fwd_eps > 0 else None
 
     mos = (iv - price) / iv * 100
     prev_mos = (iv - prev_price) / iv * 100
@@ -149,7 +151,7 @@ def evaluate(symbol, d, cfg):
     return {
         "symbol": symbol, "status": "ok", "price": price, "intrinsic": iv,
         "methods": vals, "growth": g, "pe": pe, "mos": mos, "rsi": float(r.iloc[-1]),
-        "eps": eps, "bvps": d.get("bvps"),
+        "eps": eps, "bvps": d.get("bvps"), "fwd_eps": fwd_eps, "fwd_pe": fwd_pe,
         "fcfps": (d["fcf"] / d["shares"]) if d.get("fcf") and d.get("shares") and d["shares"] > 0 else None,
         "method": cfg["method"],
         "in_zone": bool(in_zone), "signal": bool(in_zone and confirm),
@@ -186,6 +188,7 @@ def fetch(symbol):
         "bvps": info.get("bookValue"),
         "fcf": info.get("freeCashflow"),
         "shares": info.get("sharesOutstanding"),
+        "fwd_eps": info.get("forwardEps"),
         "growth": growth,
     }
 
@@ -232,8 +235,9 @@ def format_signal(r):
     n = lambda v: "n/a" if v is None else f"{v:.2f}"
     m = r["methods"]
     pe = f"{r['pe']:.1f}" if r["pe"] else "n/a"
+    fpe = f"{r['fwd_pe']:.1f}" if r["fwd_pe"] else "n/a"
     return (f"BUY SIGNAL: {r['symbol']}\n"
-            f"Price {r['price']:.2f} | PE {pe} | RSI {r['rsi']:.0f}\n"
+            f"Price {r['price']:.2f} | PE {pe} | Fwd PE {fpe} | RSI {r['rsi']:.0f}\n"
             f"EPS (TTM) {n(r['eps'])} | Book value/share {n(r['bvps'])} | FCF/share {n(r['fcfps'])}\n"
             f"Growth used {r['growth']:.1f}%\n"
             f"Graham Formula {n(m.get('graham_formula'))} | Graham Number {n(m.get('graham_number'))} | DCF {n(m.get('dcf'))}\n"
@@ -271,6 +275,10 @@ def explain(symbol, d, cfg, bars=10):
     print(f"  Free cash flow: {f(fcf)} | Shares: {f(shares)} | FCF/share: {f(fcfps)}")
     gsrc = "auto, last FY EPS growth" if d.get("growth") is not None else "manual fallback"
     print(f"  Growth used: {g:.1f}% ({gsrc})")
+    fe = d.get("fwd_eps")
+    last = float(close.iloc[-1])
+    print(f"  Trailing PE: {f(last / eps) if eps and eps > 0 else 'n/a'} | "
+          f"Forward EPS (analyst est.): {f(fe)} | Forward PE: {f(last / fe) if fe and fe > 0 else 'n/a'}")
     print("VALUATION")
     for k in ("graham_formula", "graham_number", "dcf"):
         print(f"  {k:<15}: {f(vals.get(k))}")
@@ -334,7 +342,7 @@ def main():
         return
 
     state, new_signals = load_state(), []
-    print(f"{'Symbol':<10}{'Price':>10}{'Intrinsic':>11}{'MoS %':>8}{'PE':>7}{'RSI':>6}  Status")
+    print(f"{'Symbol':<10}{'Price':>10}{'Intrinsic':>11}{'MoS %':>8}{'PE':>7}{'FwdPE':>7}{'RSI':>6}  Status")
     for sym in read_watchlist():
         try:
             r = evaluate(sym, fetch(sym), CFG)
@@ -346,7 +354,8 @@ def main():
             continue
         tag = "BUY SIGNAL" if r["signal"] else ("buy zone" if r["in_zone"] else "wait")
         pe = f"{r['pe']:.1f}" if r["pe"] else "n/a"
-        print(f"{sym:<10}{r['price']:>10.2f}{r['intrinsic']:>11.2f}{r['mos']:>8.1f}{pe:>7}{r['rsi']:>6.0f}  {tag}")
+        fpe = f"{r['fwd_pe']:.1f}" if r["fwd_pe"] else "n/a"
+        print(f"{sym:<10}{r['price']:>10.2f}{r['intrinsic']:>11.2f}{r['mos']:>8.1f}{pe:>7}{fpe:>7}{r['rsi']:>6.0f}  {tag}")
         if r["signal"] and not in_cooldown(state, sym, CFG["cooldown_days"]):
             new_signals.append(r)
 
@@ -355,7 +364,7 @@ def main():
         return
 
     body = "\n\n".join(format_signal(r) for r in new_signals)
-    #body += "\n\nScreening aid only, not financial advice. Verify the fundamentals before trading."
+    body += "\n\nScreening aid only, not financial advice. Verify the fundamentals before trading."
     print("\n" + body)
     if args.dry_run:
         print("\n(dry run: nothing sent, state not updated)")
